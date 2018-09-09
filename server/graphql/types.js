@@ -122,14 +122,6 @@ export const UserType = new GraphQLObjectType({
           return user.getPersonalDetails(req.remoteUser).then(user => user.paypalEmail);
         }
       },
-      applications: {
-        type: new GraphQLList(ApplicationType),
-        resolve(user) {
-          return models.Application.findAll({
-            where: { CreatedByUserId: user.id },
-          });
-        }
-      },
     }
   }
 });

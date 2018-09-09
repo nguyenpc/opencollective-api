@@ -64,7 +64,7 @@ export function authorizeClientApp(req, res, next) {
     if (req.method === exceptions[i].method && req.originalUrl.match(exceptions[i].regex)) return next();
   }
 
-  const apiKey = req.query.api_key;
+  const apiKey = req.get('Api-Key') || req.query.apiKey || req.query.api_key;
 
   if (req.clientApp) {
     debug('auth')(`Valid Client App`);
