@@ -1,10 +1,10 @@
 import slugify from 'slug';
 import { get, omit } from 'lodash';
-import models from '../../models';
-import * as errors from '../errors';
-import { types } from '../../constants/collectives';
-import roles from '../../constants/roles';
-import activities from '../../constants/activities';
+import models from '../../../models';
+import * as errors from '../../errors';
+import { types } from '../../../constants/collectives';
+import roles from '../../../constants/roles';
+import activities from '../../../constants/activities';
 
 export async function createCollective(_, args, req) {
   if (!req.remoteUser) {
