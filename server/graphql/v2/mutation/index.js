@@ -1,3 +1,11 @@
-const mutation = {};
+import {
+  createApplication,
+  updateApplication,
+  deleteApplication,
+} from './application';
 
-export default mutation;
+export default {
+  createApplication,
+  updateApplication,
+  deleteApplication,
+};
