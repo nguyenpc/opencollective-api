@@ -322,19 +322,36 @@ export async function createOrder(order, loaders, remoteUser, reqIp) {
       throw new Error(`Invalid currency. Expected ${currency}.`);
     }
 
+    // ---- Taxes (VAT) ----
+    let taxPercent = 0;
+    let taxAmount = 0;
+    let netAmountForCollective = order.totalAmount || 0;
+    if (tier && order.collective.HostCollectiveId) {
+      const hostCollective = await loaders.collective.findById.load(order.collective.HostCollectiveId);
+      taxPercent = get(hostCollective, `settings.tiersTaxes.${tier.type}.percentage`);
+      if (taxPercent) {
+        netAmountForCollective = Math.trunc((order.totalAmount || 0) / (1 + taxPercent / 100));
+        taxAmount = (order.totalAmount || 0) - netAmountForCollective;
+      }
+    }
+
     // ---- Checks on totalAmount ----
     if (order.totalAmount < 0) {
       throw new Error('Total amount cannot be a negative value');
     }
 
     // Don't allow custom values if using a tier with fixed amount
-    if (tier && tier.amount && !tier.presets && tier.amount * order.quantity !== order.totalAmount) {
+    if (tier && tier.amount && !tier.presets) {
+      const expectedAmount = taxPercent
+        ? order.quantity * Math.trunc(tier.amount * (1 + taxPercent / 100))
+        : order.quantity * tier.amount;
+
       if (isNil(order.totalAmount)) {
         // Manually force the totalAmount if it has no been passed
         order.totalAmount = order.quantity * tier.amount;
-      } else {
+      } else if (order.totalAmount !== expectedAmount) {
         const prettyTotalAmount = formatCurrency(order.totalAmount, currency);
-        const prettyExpectedAmount = formatCurrency(tier.amount * order.quantity, currency);
+        const prettyExpectedAmount = formatCurrency(expectedAmount, currency);
         throw new Error(
           `This tier uses a fixed amount. Order total must be ${prettyExpectedAmount}. You set: ${prettyTotalAmount}`,
         );
@@ -344,7 +361,8 @@ export async function createOrder(order, loaders, remoteUser, reqIp) {
     // If using a tier, amount can never be less than the minimum amount
     if (tier && tier.presets) {
       const minValue = min(isNil(tier.amount) ? tier.presets : [...tier.presets, tier.amount]);
-      if (order.totalAmount < order.quantity * minValue) {
+      const minExpectedAmount = taxPercent ? Math.trunc(minValue * (1 + taxPercent / 100)) : minValue;
+      if ((order.totalAmount || 0) < minExpectedAmount) {
         const prettyMinTotal = formatCurrency(order.quantity * minValue, currency);
         throw new Error(`The amount you set is below minimum tier value, it should be at least ${prettyMinTotal}`);
       }
@@ -370,6 +388,7 @@ export async function createOrder(order, loaders, remoteUser, reqIp) {
       quantity: order.quantity,
       totalAmount: order.totalAmount,
       currency,
+      taxAmount,
       interval: order.interval,
       description: order.description || defaultDescription,
       publicMessage: order.publicMessage,

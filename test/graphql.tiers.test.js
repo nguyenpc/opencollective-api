@@ -7,7 +7,8 @@ import * as utils from './utils';
 import models from '../server/models';
 
 describe('graphql.tiers.test', () => {
-  let user1, user2, host, collective1, collective2, tier1, paymentMethod1;
+  const productTax = { name: 'VAT', description: 'European unified VAT', percentage: 20.4 };
+  let user1, user2, host, collective1, collective2, tier1, tierProduct, paymentMethod1;
   let sandbox;
 
   beforeEach(() => utils.resetTestDB());
@@ -16,11 +17,25 @@ describe('graphql.tiers.test', () => {
    * Setup:
    * - User1 is a member of collective2 has a payment method on file
    * - User1 will become a backer of collective1
-   * - Host is the host of both collective1 and collective2
+   * - Host is the host of both collective1 and collective2. It has a tax on "PRODUCT" tiers.
    */
+  // Create users
   beforeEach(() => models.User.createUserWithCollective(utils.data('user1')).tap(u => (user1 = u)));
   beforeEach(() => models.User.createUserWithCollective(utils.data('user2')).tap(u => (user2 = u)));
-  beforeEach(() => models.User.createUserWithCollective(utils.data('host1')).tap(u => (host = u)));
+
+  // Create host
+  beforeEach(async () => {
+    host = await models.User.createUserWithCollective(utils.data('host1'));
+    await host.collective.update({
+      settings: {
+        tiersTaxes: {
+          PRODUCT: productTax,
+        },
+      },
+    });
+  });
+
+  // Create payment method
   beforeEach(() =>
     models.PaymentMethod.create({
       ...utils.data('paymentMethod2'),
@@ -29,12 +44,15 @@ describe('graphql.tiers.test', () => {
     }).tap(c => (paymentMethod1 = c)),
   );
 
+  // Create test collectives
   beforeEach(() => models.Collective.create(utils.data('collective1')).tap(g => (collective1 = g)));
-
   beforeEach(() => models.Collective.create(utils.data('collective2')).tap(g => (collective2 = g)));
 
+  // Create tiers
   beforeEach(() => collective1.createTier(utils.data('tier1')).tap(t => (tier1 = t)));
+  beforeEach(() => collective1.createTier(utils.data('tierProduct')).tap(t => (tierProduct = t)));
 
+  // Add hosts to collectives
   beforeEach(() => collective1.addHost(host.collective, host));
   beforeEach(() => collective2.addHost(host.collective, host));
   beforeEach(() => collective2.addUserWithRole(user1, 'ADMIN'));
@@ -270,6 +288,36 @@ describe('graphql.tiers.test', () => {
           where: { CreatedByUserId: user1.id },
         });
         expect(paymentMethods).to.have.length(2);
+      });
+    });
+
+    describe('taxes', () => {
+      const createOrderQuery = `
+        mutation createOrder($order: OrderInputType!) {
+          createOrder(order: $order) {
+            taxAmount
+            transactions {
+              taxAmount
+            }
+          }
+        }`;
+
+      it('stores tax in order and transaction', async () => {
+        const totalAmount = Math.trunc(tierProduct.amount * (1 + productTax.percentage / 100));
+        const taxAmount = totalAmount - tierProduct.amount;
+        const order = {
+          description: 'test order with tax',
+          collective: { id: collective1.id },
+          tier: { id: tierProduct.id },
+          paymentMethod: { uuid: paymentMethod1.uuid },
+          totalAmount: totalAmount,
+        };
+        const queryResult = await utils.graphqlQuery(createOrderQuery, { order }, user1);
+        const createdOrder = queryResult.data.createOrder;
+        expect(createdOrder.taxAmount).to.equal(taxAmount);
+        createdOrder.transactions.map(transaction => {
+          expect(transaction.taxAmount).to.equal(taxAmount);
+        });
       });
     });
   });
